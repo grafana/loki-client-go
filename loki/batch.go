@@ -1,4 +1,4 @@
-package client
+package loki
 
 import (
 	"time"
@@ -6,7 +6,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/golang/snappy"
 
-	"github.com/grafana/loki-client-go/internal/logproto"
+	"github.com/grafana/loki-client-go/pkg/logproto"
 )
 
 // batch holds pending log streams waiting to be sent to Loki, and it's used

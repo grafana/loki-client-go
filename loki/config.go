@@ -1,12 +1,12 @@
-package client
+package loki
 
 import (
 	"flag"
 	"time"
 
-	"github.com/grafana/loki-client-go/internal/backoff"
-	"github.com/grafana/loki-client-go/internal/labelutil"
-	"github.com/grafana/loki-client-go/internal/urlutil"
+	"github.com/grafana/loki-client-go/pkg/backoff"
+	"github.com/grafana/loki-client-go/pkg/labelutil"
+	"github.com/grafana/loki-client-go/pkg/urlutil"
 	"github.com/prometheus/common/config"
 )
 

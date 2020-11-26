@@ -1,4 +1,4 @@
-package client
+package loki
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/grafana/loki-client-go/internal/logproto"
+	"github.com/grafana/loki-client-go/pkg/logproto"
 )
 
 func TestBatch_add(t *testing.T) {

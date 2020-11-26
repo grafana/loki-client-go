@@ -1,4 +1,4 @@
-package client
+package loki
 
 import (
 	"net/url"
@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/grafana/loki-client-go/internal/backoff"
-	"github.com/grafana/loki-client-go/internal/urlutil"
+	"github.com/grafana/loki-client-go/pkg/backoff"
+	"github.com/grafana/loki-client-go/pkg/urlutil"
 	"github.com/stretchr/testify/require"
 
 	"gopkg.in/yaml.v2"
