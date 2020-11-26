@@ -1,4 +1,4 @@
-# Loki Go client
+# Loki Go client (Experimental. DO NOT USE IT)
 
 An HTTP client to send logs to Loki server
 
