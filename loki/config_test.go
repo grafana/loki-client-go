@@ -8,6 +8,7 @@ import (
 
 	"github.com/grafana/loki-client-go/pkg/backoff"
 	"github.com/grafana/loki-client-go/pkg/urlutil"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"gopkg.in/yaml.v2"
@@ -78,4 +79,16 @@ func Test_Config(t *testing.T) {
 			t.Errorf("Configs does not match, expected: %v, received: %v", tc.expectedConfig, clientConfig)
 		}
 	}
+}
+
+func TestDefaultConfig(t *testing.T) {
+	cfg, err := NewDefaultConfig("http://loki.com")
+	assert.Nil(t, err)
+	assert.Equal(t, cfg.BatchSize, BatchSize)
+	assert.Equal(t, cfg.BatchWait, BatchWait)
+	assert.Equal(t, cfg.Timeout, Timeout)
+	assert.Equal(t, cfg.BackoffConfig.MaxBackoff, MaxBackoff)
+	assert.Equal(t, cfg.BackoffConfig.MinBackoff, MinBackoff)
+	assert.Equal(t, cfg.BackoffConfig.MaxRetries, MaxRetries)
+	assert.Equal(t, cfg.URL.URL.String(), "http://loki.com")
 }

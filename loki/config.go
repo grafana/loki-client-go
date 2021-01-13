@@ -38,6 +38,22 @@ type Config struct {
 	TenantID string `yaml:"tenant_id"`
 }
 
+// NewDefaultConfig creates a default configuration for a given target Loki URL.
+func NewDefaultConfig(url string) (Config, error) {
+	var cfg Config
+	var u urlutil.URLValue
+	f := &flag.FlagSet{}
+	cfg.RegisterFlags(f)
+	if err := f.Parse(nil); err != nil {
+		return cfg, err
+	}
+	if err := u.Set(url); err != nil {
+		return cfg, err
+	}
+	cfg.URL = u
+	return cfg, nil
+}
+
 // RegisterFlags with prefix registers flags where every name is prefixed by
 // prefix. If prefix is a non-empty string, prefix should end with a period.
 func (c *Config) RegisterFlagsWithPrefix(prefix string, f *flag.FlagSet) {
