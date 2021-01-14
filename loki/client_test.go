@@ -332,12 +332,13 @@ func (s roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 func TestClient_EncodeJSON(t *testing.T) {
-	c, err := NewWithDefault("http://loki.com")
+	c, err := NewWithDefault("http://loki.com/loki/api/v1/push")
 	require.NoError(t, err)
 	c.cfg.EncodeJson = true
 
 	c.client.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		require.Equal(t, r.Header["Content-Type"][0], JSONContentType)
+		require.Equal(t, r.URL.Path, "/loki/api/v1/push")
 		b, err := ioutil.ReadAll(r.Body)
 		require.NoError(t, err)
 		require.Equal(t, `{"streams":[{"stream":{"foo":"bar"},"values":[["1","11"],["2","22"]]},{"stream":{"foo":"buzz"},"values":[["3","33"],["4","44"]]}]}`, string(b))
