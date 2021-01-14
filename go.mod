@@ -7,6 +7,7 @@ require (
 	github.com/go-kit/kit v0.10.0
 	github.com/gogo/protobuf v1.3.1
 	github.com/golang/snappy v0.0.2
+	github.com/json-iterator/go v1.1.10
 	github.com/mitchellh/mapstructure v1.2.2
 	github.com/opentracing/opentracing-go v1.2.0
 	github.com/pkg/errors v0.9.1

@@ -31,8 +31,9 @@ import (
 )
 
 const (
-	contentType  = "application/x-protobuf"
-	maxErrMsgLen = 1024
+	protoContentType = "application/x-protobuf"
+	JSONContentType  = "application/json"
+	maxErrMsgLen     = 1024
 
 	// Label reserved to override the tenant ID while processing
 	// pipeline stages
@@ -246,7 +247,17 @@ func (c *Client) run() {
 }
 
 func (c *Client) sendBatch(tenantID string, batch *batch) {
-	buf, entriesCount, err := batch.encode()
+	var (
+		err          error
+		buf          []byte
+		entriesCount int
+	)
+	if c.cfg.EncodeJson {
+		buf, entriesCount, err = batch.encodeJSON()
+	} else {
+		buf, entriesCount, err = batch.encode()
+	}
+
 	if err != nil {
 		level.Error(c.logger).Log("msg", "error encoding batch", "error", err)
 		return
@@ -313,7 +324,10 @@ func (c *Client) send(ctx context.Context, tenantID string, buf []byte) (int, er
 		return -1, err
 	}
 	req = req.WithContext(ctx)
-	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Content-Type", protoContentType)
+	if c.cfg.EncodeJson {
+		req.Header.Set("Content-Type", JSONContentType)
+	}
 	req.Header.Set("User-Agent", UserAgent)
 
 	// If the tenant ID is not empty promtail is running in multi-tenant mode, so
