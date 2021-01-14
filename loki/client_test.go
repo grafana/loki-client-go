@@ -265,7 +265,7 @@ func TestClient_Handle(t *testing.T) {
 				TenantID:       testData.clientTenantID,
 			}
 
-			c, err := New(cfg, log.NewNopLogger())
+			c, err := NewWithLogger(cfg, log.NewNopLogger())
 			require.NoError(t, err)
 
 			// Send all the input log entries

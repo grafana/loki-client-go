@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -125,8 +126,23 @@ type entry struct {
 	logproto.Entry
 }
 
-// New makes a new Client.
-func New(cfg Config, logger log.Logger) (*Client, error) {
+// New makes a new Client from config
+func New(cfg Config) (*Client, error) {
+	logger := level.NewFilter(log.NewLogfmtLogger(os.Stdout), level.AllowWarn())
+	return NewWithLogger(cfg, logger)
+}
+
+// NewWithDefault creates a new client with default configuration.
+func NewWithDefault(url string) (*Client, error) {
+	cfg, err := NewDefaultConfig(url)
+	if err != nil {
+		return nil, err
+	}
+	return New(cfg)
+}
+
+// NewWithLogger makes a new Client from a logger and a config
+func NewWithLogger(cfg Config, logger log.Logger) (*Client, error) {
 	if cfg.URL.URL == nil {
 		return nil, errors.New("client needs target URL")
 	}
