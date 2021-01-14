@@ -5,6 +5,7 @@ import (
 
 	"github.com/gogo/protobuf/proto"
 	"github.com/golang/snappy"
+	json "github.com/json-iterator/go"
 
 	"github.com/grafana/loki-client-go/pkg/logproto"
 )
@@ -77,6 +78,17 @@ func (b *batch) encode() ([]byte, int, error) {
 		return nil, 0, err
 	}
 	buf = snappy.Encode(nil, buf)
+	return buf, entriesCount, nil
+}
+
+// encode the batch as json push request, and returns
+// the encoded bytes and the number of encoded entries
+func (b *batch) encodeJSON() ([]byte, int, error) {
+	req, entriesCount := b.createPushRequest()
+	buf, err := json.Marshal(req)
+	if err != nil {
+		return nil, 0, err
+	}
 	return buf, entriesCount, nil
 }
 

@@ -1,6 +1,7 @@
 package loki
 
 import (
+	"io/ioutil"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -322,4 +323,33 @@ func createServerHandler(receivedReqsChan chan receivedReq, status int) http.Han
 
 		rw.WriteHeader(status)
 	})
+}
+
+type roundTripFunc func(r *http.Request) (*http.Response, error)
+
+func (s roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return s(r)
+}
+
+func TestClient_EncodeJSON(t *testing.T) {
+	c, err := NewWithDefault("http://loki.com")
+	require.NoError(t, err)
+	c.cfg.EncodeJson = true
+
+	c.client.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		require.Equal(t, r.Header["Content-Type"][0], JSONContentType)
+		b, err := ioutil.ReadAll(r.Body)
+		require.NoError(t, err)
+		require.Equal(t, `{"streams":[{"stream":{"foo":"bar"},"values":[["1","11"],["2","22"]]},{"stream":{"foo":"buzz"},"values":[["3","33"],["4","44"]]}]}`, string(b))
+		return &http.Response{StatusCode: 200, Body: http.NoBody}, nil
+	})
+
+	c.sendBatch("",
+		newBatch(
+			entry{labels: model.LabelSet{"foo": "bar"}, Entry: logproto.Entry{Timestamp: time.Unix(0, 1), Line: "11"}},
+			entry{labels: model.LabelSet{"foo": "bar"}, Entry: logproto.Entry{Timestamp: time.Unix(0, 2), Line: "22"}},
+			entry{labels: model.LabelSet{"foo": "buzz"}, Entry: logproto.Entry{Timestamp: time.Unix(0, 3), Line: "33"}},
+			entry{labels: model.LabelSet{"foo": "buzz"}, Entry: logproto.Entry{Timestamp: time.Unix(0, 4), Line: "44"}},
+		),
+	)
 }

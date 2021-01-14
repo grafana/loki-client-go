@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"io"
 	"time"
+
+	jsoniter "github.com/json-iterator/go"
+	"github.com/prometheus/prometheus/promql/parser"
 )
 
 // Stream contains a unique labels set as a string and a set of entries for it.
@@ -12,6 +15,55 @@ import (
 type Stream struct {
 	Labels  string  `protobuf:"bytes,1,opt,name=labels,proto3" json:"labels"`
 	Entries []Entry `protobuf:"bytes,2,rep,name=entries,proto3,customtype=EntryAdapter" json:"entries"`
+}
+
+// MarshalJSON implements the json.Marshaler interface.
+func (r *PushRequest) MarshalJSON() ([]byte, error) {
+	stream := jsoniter.ConfigDefault.BorrowStream(nil)
+	defer jsoniter.ConfigDefault.ReturnStream(stream)
+
+	stream.WriteObjectStart()
+	stream.WriteObjectField("streams")
+	stream.WriteArrayStart()
+	for i, s := range r.Streams {
+		stream.WriteObjectStart()
+		stream.WriteObjectField("stream")
+		stream.WriteObjectStart()
+		lbs, err := parser.ParseMetric(s.Labels)
+		if err != nil {
+			continue
+		}
+		for i, lb := range lbs {
+			stream.WriteObjectField(lb.Name)
+			stream.WriteStringWithHTMLEscaped(lb.Value)
+			if i != len(lbs)-1 {
+				stream.WriteMore()
+			}
+		}
+		stream.WriteObjectEnd()
+		stream.WriteMore()
+		stream.WriteObjectField("values")
+		stream.WriteArrayStart()
+		for i, entry := range s.Entries {
+			stream.WriteArrayStart()
+			stream.WriteRaw(fmt.Sprintf(`"%d"`, entry.Timestamp.UnixNano()))
+			stream.WriteMore()
+			stream.WriteStringWithHTMLEscaped(entry.Line)
+			stream.WriteArrayEnd()
+			if i != len(s.Entries)-1 {
+				stream.WriteMore()
+			}
+		}
+		stream.WriteArrayEnd()
+		stream.WriteObjectEnd()
+		if i != len(r.Streams)-1 {
+			stream.WriteMore()
+		}
+	}
+	stream.WriteArrayEnd()
+	stream.WriteObjectEnd()
+
+	return stream.Buffer(), nil
 }
 
 // Entry is a log entry with a timestamp.
@@ -393,6 +445,7 @@ func (m *Stream) Equal(that interface{}) bool {
 	}
 	return true
 }
+
 func (m *Entry) Equal(that interface{}) bool {
 	if that == nil {
 		return m == nil
