@@ -337,7 +337,7 @@ func TestClient_EncodeJSON(t *testing.T) {
 	c.cfg.EncodeJson = true
 
 	c.client.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		require.Equal(t, r.Header["Content-Type"][0], JSONContentType)
+		require.Equal(t, r.Header.Get("Content-Type"), JSONContentType)
 		require.Equal(t, r.URL.Path, "/loki/api/v1/push")
 		b, err := ioutil.ReadAll(r.Body)
 		require.NoError(t, err)
