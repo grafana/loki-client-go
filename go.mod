@@ -12,7 +12,7 @@ require (
 	github.com/opentracing/opentracing-go v1.2.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.8.0
-	github.com/prometheus/common v0.15.0
+	github.com/prometheus/common v0.24.0
 	github.com/prometheus/prometheus v1.8.2-0.20201028100903-3245b3267b24
 	github.com/stretchr/testify v1.6.1
 	google.golang.org/grpc v1.32.0

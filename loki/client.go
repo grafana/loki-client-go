@@ -162,7 +162,7 @@ func NewWithLogger(cfg Config, logger log.Logger) (*Client, error) {
 		return nil, err
 	}
 
-	c.client, err = config.NewClientFromConfig(cfg.Client, "promtail", false, false)
+	c.client, err = config.NewClientFromConfig(cfg.Client, "promtail", config.WithKeepAlivesDisabled(), config.WithHTTP2Disabled())
 	if err != nil {
 		return nil, err
 	}
