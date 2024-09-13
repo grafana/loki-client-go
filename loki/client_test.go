@@ -17,26 +17,26 @@ import (
 	"github.com/grafana/loki-client-go/pkg/httputil"
 	"github.com/grafana/loki-client-go/pkg/labelutil"
 	"github.com/grafana/loki-client-go/pkg/urlutil"
+	"github.com/grafana/loki/pkg/push"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/prometheus/common/config"
 	"github.com/prometheus/common/model"
-
-	"github.com/grafana/loki-client-go/pkg/logproto"
 )
 
 var logEntries = []entry{
-	{labels: model.LabelSet{}, Entry: logproto.Entry{Timestamp: time.Unix(1, 0).UTC(), Line: "line1"}},
-	{labels: model.LabelSet{}, Entry: logproto.Entry{Timestamp: time.Unix(2, 0).UTC(), Line: "line2"}},
-	{labels: model.LabelSet{}, Entry: logproto.Entry{Timestamp: time.Unix(3, 0).UTC(), Line: "line3"}},
-	{labels: model.LabelSet{"__tenant_id__": "tenant-1"}, Entry: logproto.Entry{Timestamp: time.Unix(4, 0).UTC(), Line: "line4"}},
-	{labels: model.LabelSet{"__tenant_id__": "tenant-1"}, Entry: logproto.Entry{Timestamp: time.Unix(5, 0).UTC(), Line: "line5"}},
-	{labels: model.LabelSet{"__tenant_id__": "tenant-2"}, Entry: logproto.Entry{Timestamp: time.Unix(6, 0).UTC(), Line: "line6"}},
+	{labels: model.LabelSet{}, Entry: push.Entry{Timestamp: time.Unix(1, 0).UTC(), Line: "line1"}},
+	{labels: model.LabelSet{}, Entry: push.Entry{Timestamp: time.Unix(2, 0).UTC(), Line: "line2"}},
+	{labels: model.LabelSet{}, Entry: push.Entry{Timestamp: time.Unix(3, 0).UTC(), Line: "line3"}},
+	{labels: model.LabelSet{"__tenant_id__": "tenant-1"}, Entry: push.Entry{Timestamp: time.Unix(4, 0).UTC(), Line: "line4"}},
+	{labels: model.LabelSet{"__tenant_id__": "tenant-1"}, Entry: push.Entry{Timestamp: time.Unix(5, 0).UTC(), Line: "line5"}},
+	{labels: model.LabelSet{"__tenant_id__": "tenant-2"}, Entry: push.Entry{Timestamp: time.Unix(6, 0).UTC(), Line: "line6"}},
+	{labels: model.LabelSet{}, Entry: push.Entry{Timestamp: time.Unix(1, 0).UTC(), Line: "line1", StructuredMetadata: push.LabelsAdapter{push.LabelAdapter{Name: "structured_test", Value: "structured_value"}}}},
 }
 
 type receivedReq struct {
 	tenantID string
-	pushReq  logproto.PushRequest
+	pushReq  push.PushRequest
 }
 
 func TestClient_Handle(t *testing.T) {
@@ -60,11 +60,11 @@ func TestClient_Handle(t *testing.T) {
 			expectedReqs: []receivedReq{
 				{
 					tenantID: "",
-					pushReq:  logproto.PushRequest{Streams: []logproto.Stream{{Labels: "{}", Entries: []logproto.Entry{logEntries[0].Entry, logEntries[1].Entry}}}},
+					pushReq:  push.PushRequest{Streams: []push.Stream{{Labels: "{}", Entries: []push.Entry{logEntries[0].Entry, logEntries[1].Entry}}}},
 				},
 				{
 					tenantID: "",
-					pushReq:  logproto.PushRequest{Streams: []logproto.Stream{{Labels: "{}", Entries: []logproto.Entry{logEntries[2].Entry}}}},
+					pushReq:  push.PushRequest{Streams: []push.Stream{{Labels: "{}", Entries: []push.Entry{logEntries[2].Entry}}}},
 				},
 			},
 			expectedMetrics: `
@@ -86,11 +86,11 @@ func TestClient_Handle(t *testing.T) {
 			expectedReqs: []receivedReq{
 				{
 					tenantID: "",
-					pushReq:  logproto.PushRequest{Streams: []logproto.Stream{{Labels: "{}", Entries: []logproto.Entry{logEntries[0].Entry}}}},
+					pushReq:  push.PushRequest{Streams: []push.Stream{{Labels: "{}", Entries: []push.Entry{logEntries[0].Entry}}}},
 				},
 				{
 					tenantID: "",
-					pushReq:  logproto.PushRequest{Streams: []logproto.Stream{{Labels: "{}", Entries: []logproto.Entry{logEntries[1].Entry}}}},
+					pushReq:  push.PushRequest{Streams: []push.Stream{{Labels: "{}", Entries: []push.Entry{logEntries[1].Entry}}}},
 				},
 			},
 			expectedMetrics: `
@@ -111,15 +111,15 @@ func TestClient_Handle(t *testing.T) {
 			expectedReqs: []receivedReq{
 				{
 					tenantID: "",
-					pushReq:  logproto.PushRequest{Streams: []logproto.Stream{{Labels: "{}", Entries: []logproto.Entry{logEntries[0].Entry}}}},
+					pushReq:  push.PushRequest{Streams: []push.Stream{{Labels: "{}", Entries: []push.Entry{logEntries[0].Entry}}}},
 				},
 				{
 					tenantID: "",
-					pushReq:  logproto.PushRequest{Streams: []logproto.Stream{{Labels: "{}", Entries: []logproto.Entry{logEntries[0].Entry}}}},
+					pushReq:  push.PushRequest{Streams: []push.Stream{{Labels: "{}", Entries: []push.Entry{logEntries[0].Entry}}}},
 				},
 				{
 					tenantID: "",
-					pushReq:  logproto.PushRequest{Streams: []logproto.Stream{{Labels: "{}", Entries: []logproto.Entry{logEntries[0].Entry}}}},
+					pushReq:  push.PushRequest{Streams: []push.Stream{{Labels: "{}", Entries: []push.Entry{logEntries[0].Entry}}}},
 				},
 			},
 			expectedMetrics: `
@@ -140,7 +140,7 @@ func TestClient_Handle(t *testing.T) {
 			expectedReqs: []receivedReq{
 				{
 					tenantID: "",
-					pushReq:  logproto.PushRequest{Streams: []logproto.Stream{{Labels: "{}", Entries: []logproto.Entry{logEntries[0].Entry}}}},
+					pushReq:  push.PushRequest{Streams: []push.Stream{{Labels: "{}", Entries: []push.Entry{logEntries[0].Entry}}}},
 				},
 			},
 			expectedMetrics: `
@@ -161,15 +161,15 @@ func TestClient_Handle(t *testing.T) {
 			expectedReqs: []receivedReq{
 				{
 					tenantID: "",
-					pushReq:  logproto.PushRequest{Streams: []logproto.Stream{{Labels: "{}", Entries: []logproto.Entry{logEntries[0].Entry}}}},
+					pushReq:  push.PushRequest{Streams: []push.Stream{{Labels: "{}", Entries: []push.Entry{logEntries[0].Entry}}}},
 				},
 				{
 					tenantID: "",
-					pushReq:  logproto.PushRequest{Streams: []logproto.Stream{{Labels: "{}", Entries: []logproto.Entry{logEntries[0].Entry}}}},
+					pushReq:  push.PushRequest{Streams: []push.Stream{{Labels: "{}", Entries: []push.Entry{logEntries[0].Entry}}}},
 				},
 				{
 					tenantID: "",
-					pushReq:  logproto.PushRequest{Streams: []logproto.Stream{{Labels: "{}", Entries: []logproto.Entry{logEntries[0].Entry}}}},
+					pushReq:  push.PushRequest{Streams: []push.Stream{{Labels: "{}", Entries: []push.Entry{logEntries[0].Entry}}}},
 				},
 			},
 			expectedMetrics: `
@@ -191,7 +191,7 @@ func TestClient_Handle(t *testing.T) {
 			expectedReqs: []receivedReq{
 				{
 					tenantID: "tenant-default",
-					pushReq:  logproto.PushRequest{Streams: []logproto.Stream{{Labels: "{}", Entries: []logproto.Entry{logEntries[0].Entry, logEntries[1].Entry}}}},
+					pushReq:  push.PushRequest{Streams: []push.Stream{{Labels: "{}", Entries: []push.Entry{logEntries[0].Entry, logEntries[1].Entry}}}},
 				},
 			},
 			expectedMetrics: `
@@ -213,21 +213,43 @@ func TestClient_Handle(t *testing.T) {
 			expectedReqs: []receivedReq{
 				{
 					tenantID: "tenant-default",
-					pushReq:  logproto.PushRequest{Streams: []logproto.Stream{{Labels: "{}", Entries: []logproto.Entry{logEntries[0].Entry}}}},
+					pushReq:  push.PushRequest{Streams: []push.Stream{{Labels: "{}", Entries: []push.Entry{logEntries[0].Entry}}}},
 				},
 				{
 					tenantID: "tenant-1",
-					pushReq:  logproto.PushRequest{Streams: []logproto.Stream{{Labels: "{}", Entries: []logproto.Entry{logEntries[3].Entry, logEntries[4].Entry}}}},
+					pushReq:  push.PushRequest{Streams: []push.Stream{{Labels: "{}", Entries: []push.Entry{logEntries[3].Entry, logEntries[4].Entry}}}},
 				},
 				{
 					tenantID: "tenant-2",
-					pushReq:  logproto.PushRequest{Streams: []logproto.Stream{{Labels: "{}", Entries: []logproto.Entry{logEntries[5].Entry}}}},
+					pushReq:  push.PushRequest{Streams: []push.Stream{{Labels: "{}", Entries: []push.Entry{logEntries[5].Entry}}}},
 				},
 			},
 			expectedMetrics: `
 				# HELP promtail_sent_entries_total Number of log entries sent to the ingester.
 				# TYPE promtail_sent_entries_total counter
 				promtail_sent_entries_total{host="__HOST__"} 4.0
+				# HELP promtail_dropped_entries_total Number of log entries dropped because failed to be sent to the ingester after all retries.
+				# TYPE promtail_dropped_entries_total counter
+				promtail_dropped_entries_total{host="__HOST__"} 0
+			`,
+		},
+		"batch log entries with structured metadata": {
+			clientBatchSize:      100,
+			clientBatchWait:      100 * time.Millisecond,
+			clientMaxRetries:     3,
+			clientTenantID:       "tenant-default",
+			serverResponseStatus: 200,
+			inputEntries:         []entry{logEntries[6]},
+			expectedReqs: []receivedReq{
+				{
+					tenantID: "tenant-default",
+					pushReq:  push.PushRequest{Streams: []push.Stream{{Labels: "{}", Entries: []push.Entry{logEntries[6].Entry}}}},
+				},
+			},
+			expectedMetrics: `
+				# HELP promtail_sent_entries_total Number of log entries sent to the ingester.
+				# TYPE promtail_sent_entries_total counter
+				promtail_sent_entries_total{host="__HOST__"} 1.0
 				# HELP promtail_dropped_entries_total Number of log entries dropped because failed to be sent to the ingester after all retries.
 				# TYPE promtail_dropped_entries_total counter
 				promtail_dropped_entries_total{host="__HOST__"} 0
@@ -271,7 +293,11 @@ func TestClient_Handle(t *testing.T) {
 
 			// Send all the input log entries
 			for i, logEntry := range testData.inputEntries {
-				err = c.Handle(logEntry.labels, logEntry.Timestamp, logEntry.Line)
+				if logEntry.StructuredMetadata != nil {
+					err = c.HandleWithMetadata(logEntry.labels, logEntry.Timestamp, logEntry.Line, logEntry.StructuredMetadata)
+				} else {
+					err = c.Handle(logEntry.labels, logEntry.Timestamp, logEntry.Line)
+				}
 				require.NoError(t, err)
 
 				if testData.inputDelay > 0 && i < len(testData.inputEntries)-1 {
@@ -310,7 +336,7 @@ func TestClient_Handle(t *testing.T) {
 func createServerHandler(receivedReqsChan chan receivedReq, status int) http.HandlerFunc {
 	return http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
 		// Parse the request
-		var pushReq logproto.PushRequest
+		var pushReq push.PushRequest
 		if err := httputil.ParseProtoReader(req.Context(), req.Body, int(req.ContentLength), math.MaxInt32, &pushReq, httputil.RawSnappy); err != nil {
 			rw.WriteHeader(500)
 			return
@@ -347,10 +373,10 @@ func TestClient_EncodeJSON(t *testing.T) {
 
 	c.sendBatch("",
 		newBatch(
-			entry{labels: model.LabelSet{"foo": "bar"}, Entry: logproto.Entry{Timestamp: time.Unix(0, 1), Line: "11"}},
-			entry{labels: model.LabelSet{"foo": "bar"}, Entry: logproto.Entry{Timestamp: time.Unix(0, 2), Line: "22"}},
-			entry{labels: model.LabelSet{"foo": "buzz"}, Entry: logproto.Entry{Timestamp: time.Unix(0, 3), Line: "33"}},
-			entry{labels: model.LabelSet{"foo": "buzz"}, Entry: logproto.Entry{Timestamp: time.Unix(0, 4), Line: "44"}},
+			entry{labels: model.LabelSet{"foo": "bar"}, Entry: push.Entry{Timestamp: time.Unix(0, 1), Line: "11"}},
+			entry{labels: model.LabelSet{"foo": "bar"}, Entry: push.Entry{Timestamp: time.Unix(0, 2), Line: "22"}},
+			entry{labels: model.LabelSet{"foo": "buzz"}, Entry: push.Entry{Timestamp: time.Unix(0, 3), Line: "33"}},
+			entry{labels: model.LabelSet{"foo": "buzz"}, Entry: push.Entry{Timestamp: time.Unix(0, 4), Line: "44"}},
 		),
 	)
 }

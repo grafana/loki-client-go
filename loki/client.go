@@ -27,7 +27,8 @@ import (
 	"github.com/prometheus/common/version"
 
 	"github.com/grafana/loki-client-go/pkg/helpers"
-	"github.com/grafana/loki-client-go/pkg/logproto"
+
+	push "github.com/grafana/loki/pkg/push"
 )
 
 const (
@@ -124,7 +125,7 @@ type Client struct {
 type entry struct {
 	tenantID string
 	labels   model.LabelSet
-	logproto.Entry
+	push.Entry
 }
 
 // New makes a new Client from config
@@ -377,24 +378,42 @@ func (c *Client) Stop() {
 
 // Handle implement EntryHandler; adds a new line to the next batch; send is async.
 func (c *Client) Handle(ls model.LabelSet, t time.Time, s string) error {
-	if len(c.externalLabels) > 0 {
-		ls = c.externalLabels.Merge(ls)
-	}
+	ls, tenantID := mergeLabels(c, ls)
 
-	// Get the tenant  ID in case it has been overridden while processing
-	// the pipeline stages, then remove the special label
-	tenantID := c.getTenantID(ls)
-	if _, ok := ls[ReservedLabelTenantID]; ok {
-		// Clone the label set to not manipulate the input one
-		ls = ls.Clone()
-		delete(ls, ReservedLabelTenantID)
-	}
-
-	c.entries <- entry{tenantID, ls, logproto.Entry{
+	c.entries <- entry{tenantID, ls, push.Entry{
 		Timestamp: t,
 		Line:      s,
 	}}
 	return nil
+}
+
+// Handle implement EntryHandler; adds a new line to the next batch; send is async.
+func (c *Client) HandleWithMetadata(ls model.LabelSet, t time.Time, s string, m push.LabelsAdapter) error {
+	ls, tenantID := mergeLabels(c, ls)
+
+	c.entries <- entry{tenantID, ls, push.Entry{
+		Timestamp:          t,
+		Line:               s,
+		StructuredMetadata: m,
+	}}
+	return nil
+}
+
+func mergeLabels(c *Client, ls model.LabelSet) (model.LabelSet, string) {
+	// Get the tenant  ID in case it has been overridden while processing
+	// the pipeline stages, then remove the special label
+	// Clone the label set to not manipulate the input one
+	if len(c.externalLabels) > 0 {
+		ls = c.externalLabels.Merge(ls)
+	}
+
+	tenantID := c.getTenantID(ls)
+	if _, ok := ls[ReservedLabelTenantID]; ok {
+
+		ls = ls.Clone()
+		delete(ls, ReservedLabelTenantID)
+	}
+	return ls, tenantID
 }
 
 func (c *Client) UnregisterLatencyMetric(labels model.LabelSet) {
