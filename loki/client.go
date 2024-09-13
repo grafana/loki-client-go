@@ -28,7 +28,7 @@ import (
 
 	"github.com/grafana/loki-client-go/pkg/helpers"
 
-	push "github.com/grafana/loki/pkg/push"
+	"github.com/grafana/loki/pkg/push"
 )
 
 const (
