@@ -7,7 +7,7 @@ import (
 	"github.com/golang/snappy"
 	json "github.com/json-iterator/go"
 
-	"github.com/grafana/loki-client-go/pkg/logproto"
+	"github.com/grafana/loki/pkg/push"
 )
 
 // batch holds pending log streams waiting to be sent to Loki, and it's used
@@ -15,14 +15,14 @@ import (
 // and entries in a single batch request. In case of multi-tenant Promtail, log
 // streams for each tenant are stored in a dedicated batch.
 type batch struct {
-	streams   map[string]*logproto.Stream
+	streams   map[string]*push.Stream
 	bytes     int
 	createdAt time.Time
 }
 
 func newBatch(entries ...entry) *batch {
 	b := &batch{
-		streams:   map[string]*logproto.Stream{},
+		streams:   map[string]*push.Stream{},
 		bytes:     0,
 		createdAt: time.Now(),
 	}
@@ -47,9 +47,9 @@ func (b *batch) add(entry entry) {
 	}
 
 	// Add the entry as a new stream
-	b.streams[labels] = &logproto.Stream{
+	b.streams[labels] = &push.Stream{
 		Labels:  labels,
-		Entries: []logproto.Entry{entry.Entry},
+		Entries: []push.Entry{entry.Entry},
 	}
 }
 
@@ -93,9 +93,9 @@ func (b *batch) encodeJSON() ([]byte, int, error) {
 }
 
 // creates push request and returns it, together with number of entries
-func (b *batch) createPushRequest() (*logproto.PushRequest, int) {
-	req := logproto.PushRequest{
-		Streams: make([]logproto.Stream, 0, len(b.streams)),
+func (b *batch) createPushRequest() (*push.PushRequest, int) {
+	req := push.PushRequest{
+		Streams: make([]push.Stream, 0, len(b.streams)),
 	}
 
 	entriesCount := 0
