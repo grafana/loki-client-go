@@ -17,7 +17,7 @@ require (
 	github.com/prometheus/client_golang v1.12.1
 	github.com/prometheus/common v0.34.0
 	github.com/prometheus/prometheus v0.35.0
-	github.com/stretchr/testify v1.8.2
+	github.com/stretchr/testify v1.11.1
 	gopkg.in/yaml.v2 v2.4.0
 )
 
