@@ -12,12 +12,13 @@ import (
 
 // NOTE the helm chart for promtail and fluent-bit also have defaults for these values, please update to match if you make changes here.
 const (
-	BatchWait      = 1 * time.Second
-	BatchSize  int = 1024 * 1024
-	MinBackoff     = 500 * time.Millisecond
-	MaxBackoff     = 5 * time.Minute
-	MaxRetries int = 10
-	Timeout        = 10 * time.Second
+	BatchWait       = 1 * time.Second
+	BatchSize   int = 1024 * 1024
+	BufferSize  int = 5000
+	MinBackoff      = 500 * time.Millisecond
+	MaxBackoff      = 5 * time.Minute
+	MaxRetries  int = 10
+	Timeout         = 10 * time.Second
 )
 
 // Config describes configuration for a HTTP pusher client.
@@ -39,6 +40,10 @@ type Config struct {
 
 	// Use Loki JSON api as opposed to the snappy protobuf.
 	EncodeJson bool `yaml:"encode_json"`
+
+	// BufferSize is the capacity of the entries channel buffer.
+	// When the buffer is full, new entries are dropped.
+	BufferSize int `yaml:"buffer_size"`
 }
 
 // NewDefaultConfig creates a default configuration for a given target Loki URL.
@@ -70,6 +75,7 @@ func (c *Config) RegisterFlagsWithPrefix(prefix string, f *flag.FlagSet) {
 	f.DurationVar(&c.Timeout, prefix+"client.timeout", Timeout, "Maximum time to wait for server to respond to a request")
 	f.Var(&c.ExternalLabels, prefix+"client.external-labels", "list of external labels to add to each log (e.g: --client.external-labels=lb1=v1,lb2=v2)")
 
+	f.IntVar(&c.BufferSize, prefix+"client.buffer-size", BufferSize, "Size of the entries channel buffer. When full, new entries are dropped.")
 	f.StringVar(&c.TenantID, prefix+"client.tenant-id", "", "Tenant ID to use when pushing logs to Loki.")
 	f.BoolVar(&c.EncodeJson, prefix+"client.encode-json", false, "Encode payload in JSON, default to snappy protobuf")
 }
@@ -94,9 +100,10 @@ func (c *Config) UnmarshalYAML(unmarshal func(interface{}) error) error {
 				MaxRetries: MaxRetries,
 				MinBackoff: MinBackoff,
 			},
-			BatchSize: BatchSize,
-			BatchWait: BatchWait,
-			Timeout:   Timeout,
+			BatchSize:  BatchSize,
+			BatchWait:  BatchWait,
+			BufferSize: BufferSize,
+			Timeout:    Timeout,
 		}
 	}
 

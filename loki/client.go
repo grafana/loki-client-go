@@ -42,6 +42,10 @@ const (
 
 	LatencyLabel = "filename"
 	HostLabel    = "host"
+	ReasonLabel  = "reason"
+
+	ReasonBufferFull = "buffer_full"
+	ReasonSendFailed = "send_failed"
 )
 
 var (
@@ -59,7 +63,7 @@ var (
 		Namespace: "promtail",
 		Name:      "dropped_bytes_total",
 		Help:      "Number of bytes dropped because failed to be sent to the ingester after all retries.",
-	}, []string{HostLabel})
+	}, []string{HostLabel, ReasonLabel})
 	sentEntries = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "promtail",
 		Name:      "sent_entries_total",
@@ -69,7 +73,7 @@ var (
 		Namespace: "promtail",
 		Name:      "dropped_entries_total",
 		Help:      "Number of log entries dropped because failed to be sent to the ingester after all retries.",
-	}, []string{HostLabel})
+	}, []string{HostLabel, ReasonLabel})
 	requestDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: "promtail",
 		Name:      "request_duration_seconds",
@@ -83,7 +87,10 @@ var (
 	streamLag *metric.Gauges
 
 	countersWithHost = []*prometheus.CounterVec{
-		encodedBytes, sentBytes, droppedBytes, sentEntries, droppedEntries,
+		encodedBytes, sentBytes, sentEntries,
+	}
+	countersWithHostAndReason = []*prometheus.CounterVec{
+		droppedBytes, droppedEntries,
 	}
 
 	UserAgent = fmt.Sprintf("promtail/%s", version.Version)
@@ -118,6 +125,10 @@ type Client struct {
 	once    sync.Once
 	entries chan entry
 	wg      sync.WaitGroup
+	sendWg  sync.WaitGroup
+
+	ctx    context.Context
+	cancel context.CancelFunc
 
 	externalLabels model.LabelSet
 }
@@ -149,22 +160,32 @@ func NewWithLogger(cfg Config, logger log.Logger) (*Client, error) {
 		return nil, errors.New("client needs target URL")
 	}
 
+	if cfg.BufferSize <= 0 {
+		cfg.BufferSize = BufferSize
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
 	c := &Client{
 		logger:  log.With(logger, "component", "client", "host", cfg.URL.Host),
 		cfg:     cfg,
 		quit:    make(chan struct{}),
-		entries: make(chan entry),
+		entries: make(chan entry, cfg.BufferSize),
+		ctx:     ctx,
+		cancel:  cancel,
 
 		externalLabels: cfg.ExternalLabels.LabelSet,
 	}
 
 	err := cfg.Client.Validate()
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 
 	c.client, err = config.NewClientFromConfig(cfg.Client, "promtail", config.WithHTTP2Disabled())
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 
@@ -174,6 +195,10 @@ func NewWithLogger(cfg Config, logger log.Logger) (*Client, error) {
 	// occurrence of incrementing to avoid missing metrics.
 	for _, counter := range countersWithHost {
 		counter.WithLabelValues(c.cfg.URL.Host).Add(0)
+	}
+	for _, counter := range countersWithHostAndReason {
+		counter.WithLabelValues(c.cfg.URL.Host, ReasonBufferFull).Add(0)
+		counter.WithLabelValues(c.cfg.URL.Host, ReasonSendFailed).Add(0)
 	}
 
 	c.wg.Add(1)
@@ -199,9 +224,32 @@ func (c *Client) run() {
 	maxWaitCheck := time.NewTicker(maxWaitCheckFrequency)
 
 	defer func() {
+		maxWaitCheck.Stop()
+
+		// Drain the buffered channel
+	drain:
+		for {
+			select {
+			case e := <-c.entries:
+				batch, ok := batches[e.tenantID]
+				if !ok {
+					batches[e.tenantID] = newBatch(e)
+					continue
+				}
+				if batch.sizeBytesAfter(e) > c.cfg.BatchSize {
+					c.dispatchBatch(e.tenantID, batch)
+					batches[e.tenantID] = newBatch(e)
+					continue
+				}
+				batch.add(e)
+			default:
+				break drain
+			}
+		}
+
 		// Send all pending batches
 		for tenantID, batch := range batches {
-			c.sendBatch(tenantID, batch)
+			c.dispatchBatch(tenantID, batch)
 		}
 
 		c.wg.Done()
@@ -224,7 +272,7 @@ func (c *Client) run() {
 			// If adding the entry to the batch will increase the size over the max
 			// size allowed, we do send the current batch and then create a new one
 			if batch.sizeBytesAfter(e) > c.cfg.BatchSize {
-				c.sendBatch(e.tenantID, batch)
+				c.dispatchBatch(e.tenantID, batch)
 
 				batches[e.tenantID] = newBatch(e)
 				break
@@ -240,11 +288,20 @@ func (c *Client) run() {
 					continue
 				}
 
-				c.sendBatch(tenantID, batch)
+				c.dispatchBatch(tenantID, batch)
 				delete(batches, tenantID)
 			}
 		}
 	}
+}
+
+// dispatchBatch launches sendBatch in a goroutine so run() is never blocked by sends.
+func (c *Client) dispatchBatch(tenantID string, b *batch) {
+	c.sendWg.Add(1)
+	go func() {
+		defer c.sendWg.Done()
+		c.sendBatch(tenantID, b)
+	}()
 }
 
 func (c *Client) sendBatch(tenantID string, batch *batch) {
@@ -266,7 +323,7 @@ func (c *Client) sendBatch(tenantID string, batch *batch) {
 	bufBytes := float64(len(buf))
 	encodedBytes.WithLabelValues(c.cfg.URL.Host).Add(bufBytes)
 
-	ctx := context.Background()
+	ctx := c.ctx
 	backoff := backoff.New(ctx, c.cfg.BackoffConfig)
 	var status int
 	for backoff.Ongoing() {
@@ -312,8 +369,8 @@ func (c *Client) sendBatch(tenantID string, batch *batch) {
 
 	if err != nil {
 		level.Error(c.logger).Log("msg", "final error sending batch", "status", status, "error", err)
-		droppedBytes.WithLabelValues(c.cfg.URL.Host).Add(bufBytes)
-		droppedEntries.WithLabelValues(c.cfg.URL.Host).Add(float64(entriesCount))
+		droppedBytes.WithLabelValues(c.cfg.URL.Host, ReasonSendFailed).Add(bufBytes)
+		droppedEntries.WithLabelValues(c.cfg.URL.Host, ReasonSendFailed).Add(float64(entriesCount))
 	}
 }
 
@@ -370,32 +427,70 @@ func (c *Client) getTenantID(labels model.LabelSet) string {
 	return ""
 }
 
-// Stop the client.
-func (c *Client) Stop() {
+// StopContext stops the client, respecting the provided context's deadline.
+// If the context is cancelled or its deadline expires before all in-flight
+// sends complete, it force-cancels them and returns the context error.
+func (c *Client) StopContext(ctx context.Context) error {
 	c.once.Do(func() { close(c.quit) })
 	c.wg.Wait()
+
+	done := make(chan struct{})
+	go func() {
+		c.sendWg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		c.cancel() // force-cancel all in-flight sends
+		<-done     // wait for goroutines to actually return
+		return ctx.Err()
+	}
+}
+
+// Stop the client.
+func (c *Client) Stop() {
+	_ = c.StopContext(context.Background())
 }
 
 // Handle implement EntryHandler; adds a new line to the next batch; send is async.
+// Handle never blocks. If the buffer is full, the entry is dropped and metrics are incremented.
 func (c *Client) Handle(ls model.LabelSet, t time.Time, s string) error {
 	ls, tenantID := mergeLabels(c, ls)
 
-	c.entries <- entry{tenantID, ls, push.Entry{
+	e := entry{tenantID, ls, push.Entry{
 		Timestamp: t,
 		Line:      s,
 	}}
+	select {
+	case c.entries <- e:
+	default:
+		droppedEntries.WithLabelValues(c.cfg.URL.Host, ReasonBufferFull).Inc()
+		droppedBytes.WithLabelValues(c.cfg.URL.Host, ReasonBufferFull).Add(float64(len(s)))
+		level.Warn(c.logger).Log("msg", "entry dropped, buffer full")
+	}
 	return nil
 }
 
-// Handle implement EntryHandler; adds a new line to the next batch; send is async.
+// HandleWithMetadata implement EntryHandler; adds a new line to the next batch; send is async.
+// HandleWithMetadata never blocks. If the buffer is full, the entry is dropped and metrics are incremented.
 func (c *Client) HandleWithMetadata(ls model.LabelSet, t time.Time, s string, m push.LabelsAdapter) error {
 	ls, tenantID := mergeLabels(c, ls)
 
-	c.entries <- entry{tenantID, ls, push.Entry{
+	e := entry{tenantID, ls, push.Entry{
 		Timestamp:          t,
 		Line:               s,
 		StructuredMetadata: m,
 	}}
+	select {
+	case c.entries <- e:
+	default:
+		droppedEntries.WithLabelValues(c.cfg.URL.Host, ReasonBufferFull).Inc()
+		droppedBytes.WithLabelValues(c.cfg.URL.Host, ReasonBufferFull).Add(float64(len(s)))
+		level.Warn(c.logger).Log("msg", "entry dropped, buffer full")
+	}
 	return nil
 }
 

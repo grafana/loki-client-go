@@ -49,9 +49,10 @@ func Test_Config(t *testing.T) {
 					MaxRetries: MaxRetries,
 					MinBackoff: MinBackoff,
 				},
-				BatchSize: BatchSize,
-				BatchWait: BatchWait,
-				Timeout:   Timeout,
+				BatchSize:  BatchSize,
+				BatchWait:  BatchWait,
+				BufferSize: BufferSize,
+				Timeout:    Timeout,
 			},
 		},
 		{
@@ -65,9 +66,10 @@ func Test_Config(t *testing.T) {
 					MaxRetries: 20,
 					MinBackoff: 5 * time.Second,
 				},
-				BatchSize: 100 * 2048,
-				BatchWait: 5 * time.Second,
-				Timeout:   5 * time.Second,
+				BatchSize:  100 * 2048,
+				BatchWait:  5 * time.Second,
+				BufferSize: BufferSize,
+				Timeout:    5 * time.Second,
 			},
 		},
 	}
@@ -90,5 +92,6 @@ func TestDefaultConfig(t *testing.T) {
 	assert.Equal(t, cfg.BackoffConfig.MaxBackoff, MaxBackoff)
 	assert.Equal(t, cfg.BackoffConfig.MinBackoff, MinBackoff)
 	assert.Equal(t, cfg.BackoffConfig.MaxRetries, MaxRetries)
+	assert.Equal(t, cfg.BufferSize, BufferSize)
 	assert.Equal(t, cfg.URL.URL.String(), "http://loki.com")
 }

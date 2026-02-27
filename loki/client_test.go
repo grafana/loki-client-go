@@ -1,6 +1,7 @@
 package loki
 
 import (
+	"context"
 	"io/ioutil"
 	"math"
 	"net/http"
@@ -73,7 +74,8 @@ func TestClient_Handle(t *testing.T) {
 				promtail_sent_entries_total{host="__HOST__"} 3.0
 				# HELP promtail_dropped_entries_total Number of log entries dropped because failed to be sent to the ingester after all retries.
 				# TYPE promtail_dropped_entries_total counter
-				promtail_dropped_entries_total{host="__HOST__"} 0
+				promtail_dropped_entries_total{host="__HOST__",reason="buffer_full"} 0
+				promtail_dropped_entries_total{host="__HOST__",reason="send_failed"} 0
 			`,
 		},
 		"batch log entries together until the batch wait time is reached": {
@@ -99,7 +101,8 @@ func TestClient_Handle(t *testing.T) {
 				promtail_sent_entries_total{host="__HOST__"} 2.0
 				# HELP promtail_dropped_entries_total Number of log entries dropped because failed to be sent to the ingester after all retries.
 				# TYPE promtail_dropped_entries_total counter
-				promtail_dropped_entries_total{host="__HOST__"} 0
+				promtail_dropped_entries_total{host="__HOST__",reason="buffer_full"} 0
+				promtail_dropped_entries_total{host="__HOST__",reason="send_failed"} 0
 			`,
 		},
 		"retry send a batch up to backoff's max retries in case the server responds with a 5xx": {
@@ -125,7 +128,8 @@ func TestClient_Handle(t *testing.T) {
 			expectedMetrics: `
 				# HELP promtail_dropped_entries_total Number of log entries dropped because failed to be sent to the ingester after all retries.
 				# TYPE promtail_dropped_entries_total counter
-				promtail_dropped_entries_total{host="__HOST__"} 1.0
+				promtail_dropped_entries_total{host="__HOST__",reason="buffer_full"} 0
+				promtail_dropped_entries_total{host="__HOST__",reason="send_failed"} 1.0
 				# HELP promtail_sent_entries_total Number of log entries sent to the ingester.
 				# TYPE promtail_sent_entries_total counter
 				promtail_sent_entries_total{host="__HOST__"} 0
@@ -146,7 +150,8 @@ func TestClient_Handle(t *testing.T) {
 			expectedMetrics: `
 				# HELP promtail_dropped_entries_total Number of log entries dropped because failed to be sent to the ingester after all retries.
 				# TYPE promtail_dropped_entries_total counter
-				promtail_dropped_entries_total{host="__HOST__"} 1.0
+				promtail_dropped_entries_total{host="__HOST__",reason="buffer_full"} 0
+				promtail_dropped_entries_total{host="__HOST__",reason="send_failed"} 1.0
 				# HELP promtail_sent_entries_total Number of log entries sent to the ingester.
 				# TYPE promtail_sent_entries_total counter
 				promtail_sent_entries_total{host="__HOST__"} 0
@@ -175,7 +180,8 @@ func TestClient_Handle(t *testing.T) {
 			expectedMetrics: `
 				# HELP promtail_dropped_entries_total Number of log entries dropped because failed to be sent to the ingester after all retries.
 				# TYPE promtail_dropped_entries_total counter
-				promtail_dropped_entries_total{host="__HOST__"} 1.0
+				promtail_dropped_entries_total{host="__HOST__",reason="buffer_full"} 0
+				promtail_dropped_entries_total{host="__HOST__",reason="send_failed"} 1.0
 				# HELP promtail_sent_entries_total Number of log entries sent to the ingester.
 				# TYPE promtail_sent_entries_total counter
 				promtail_sent_entries_total{host="__HOST__"} 0
@@ -200,7 +206,8 @@ func TestClient_Handle(t *testing.T) {
 				promtail_sent_entries_total{host="__HOST__"} 2.0
 				# HELP promtail_dropped_entries_total Number of log entries dropped because failed to be sent to the ingester after all retries.
 				# TYPE promtail_dropped_entries_total counter
-				promtail_dropped_entries_total{host="__HOST__"} 0
+				promtail_dropped_entries_total{host="__HOST__",reason="buffer_full"} 0
+				promtail_dropped_entries_total{host="__HOST__",reason="send_failed"} 0
 			`,
 		},
 		"batch log entries together honoring the tenant ID overridden while processing the pipeline stages": {
@@ -230,7 +237,8 @@ func TestClient_Handle(t *testing.T) {
 				promtail_sent_entries_total{host="__HOST__"} 4.0
 				# HELP promtail_dropped_entries_total Number of log entries dropped because failed to be sent to the ingester after all retries.
 				# TYPE promtail_dropped_entries_total counter
-				promtail_dropped_entries_total{host="__HOST__"} 0
+				promtail_dropped_entries_total{host="__HOST__",reason="buffer_full"} 0
+				promtail_dropped_entries_total{host="__HOST__",reason="send_failed"} 0
 			`,
 		},
 		"batch log entries with structured metadata": {
@@ -252,7 +260,8 @@ func TestClient_Handle(t *testing.T) {
 				promtail_sent_entries_total{host="__HOST__"} 1.0
 				# HELP promtail_dropped_entries_total Number of log entries dropped because failed to be sent to the ingester after all retries.
 				# TYPE promtail_dropped_entries_total counter
-				promtail_dropped_entries_total{host="__HOST__"} 0
+				promtail_dropped_entries_total{host="__HOST__",reason="buffer_full"} 0
+				promtail_dropped_entries_total{host="__HOST__",reason="send_failed"} 0
 			`,
 		},
 	}
@@ -355,6 +364,160 @@ type roundTripFunc func(r *http.Request) (*http.Response, error)
 
 func (s roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 	return s(r)
+}
+
+func TestClient_HandleNonBlocking(t *testing.T) {
+	sentEntries.Reset()
+	droppedEntries.Reset()
+	droppedBytes.Reset()
+
+	// Start a server that accepts but responds slowly
+	server := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+		time.Sleep(50 * time.Millisecond)
+		rw.WriteHeader(200)
+	}))
+	defer server.Close()
+
+	serverURL := urlutil.URLValue{}
+	err := serverURL.Set(server.URL)
+	require.NoError(t, err)
+
+	bufSize := 50
+	cfg := Config{
+		URL:            serverURL,
+		BatchWait:      1 * time.Hour, // don't flush by time
+		BatchSize:      1,             // flush every entry so sendBatch is called frequently
+		BufferSize:     bufSize,
+		Client:         config.HTTPClientConfig{},
+		BackoffConfig:  backoff.BackoffConfig{MinBackoff: 1 * time.Millisecond, MaxBackoff: 2 * time.Millisecond, MaxRetries: 1},
+		ExternalLabels: labelutil.LabelSet{},
+		Timeout:        1 * time.Second,
+	}
+
+	c, err := NewWithLogger(cfg, log.NewNopLogger())
+	require.NoError(t, err)
+
+	// Send more entries than the buffer can hold. Handle() must never block.
+	total := bufSize + 100
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < total; i++ {
+			_ = c.Handle(model.LabelSet{}, time.Now(), "line")
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Handle() returned for all entries without blocking
+	case <-time.After(5 * time.Second):
+		t.Fatal("Handle() blocked — expected non-blocking behavior")
+	}
+
+	// Verify that some entries were dropped
+	dropped := testutil.ToFloat64(droppedEntries.WithLabelValues(serverURL.Host, ReasonBufferFull))
+	assert.Greater(t, dropped, float64(0), "expected some entries to be dropped")
+
+	c.Stop()
+}
+
+func TestClient_GracefulShutdown(t *testing.T) {
+	sentEntries.Reset()
+	droppedEntries.Reset()
+
+	receivedReqsChan := make(chan receivedReq, 100)
+
+	server := httptest.NewServer(createServerHandler(receivedReqsChan, 200))
+	require.NotNil(t, server)
+	defer server.Close()
+
+	serverURL := urlutil.URLValue{}
+	err := serverURL.Set(server.URL)
+	require.NoError(t, err)
+
+	cfg := Config{
+		URL:            serverURL,
+		BatchWait:      1 * time.Hour, // don't flush by time — only flush on Stop()
+		BatchSize:      1024 * 1024,   // large batch size so entries accumulate
+		BufferSize:     100,
+		Client:         config.HTTPClientConfig{},
+		BackoffConfig:  backoff.BackoffConfig{MinBackoff: 1 * time.Millisecond, MaxBackoff: 2 * time.Millisecond, MaxRetries: 3},
+		ExternalLabels: labelutil.LabelSet{},
+		Timeout:        1 * time.Second,
+	}
+
+	c, err := NewWithLogger(cfg, log.NewNopLogger())
+	require.NoError(t, err)
+
+	numEntries := 5
+	for i := 0; i < numEntries; i++ {
+		err = c.Handle(model.LabelSet{}, time.Unix(int64(i+1), 0).UTC(), "line")
+		require.NoError(t, err)
+	}
+
+	// Stop should flush all buffered entries before returning
+	c.Stop()
+	close(receivedReqsChan)
+
+	totalEntries := 0
+	for req := range receivedReqsChan {
+		for _, stream := range req.pushReq.Streams {
+			totalEntries += len(stream.Entries)
+		}
+	}
+
+	assert.Equal(t, numEntries, totalEntries, "all buffered entries should be sent during graceful shutdown")
+}
+
+func TestClient_StopContextCancellation(t *testing.T) {
+	sentEntries.Reset()
+	droppedEntries.Reset()
+
+	serverURL := urlutil.URLValue{}
+	err := serverURL.Set("http://localhost:0/loki/api/v1/push")
+	require.NoError(t, err)
+
+	cfg := Config{
+		URL:       serverURL,
+		BatchWait: 10 * time.Millisecond,
+		BatchSize: 1, // flush every entry
+		Client:    config.HTTPClientConfig{},
+		BackoffConfig: backoff.BackoffConfig{
+			MinBackoff: 1 * time.Second,
+			MaxBackoff: 10 * time.Second,
+			MaxRetries: 10,
+		},
+		ExternalLabels: labelutil.LabelSet{},
+		Timeout:        10 * time.Minute, // long timeout so the request itself won't time out
+	}
+
+	c, err := NewWithLogger(cfg, log.NewNopLogger())
+	require.NoError(t, err)
+
+	// Use a custom transport that blocks until the request context is cancelled,
+	// simulating an unreachable Loki without needing a real httptest.Server.
+	c.client.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		<-r.Context().Done()
+		return nil, r.Context().Err()
+	})
+
+	// Send an entry to trigger a batch send.
+	err = c.Handle(model.LabelSet{}, time.Now(), "test-line")
+	require.NoError(t, err)
+
+	// Give the batch time to be dispatched and the HTTP request to start.
+	time.Sleep(100 * time.Millisecond)
+
+	// StopContext with a short deadline should return quickly.
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	stopErr := c.StopContext(ctx)
+	elapsed := time.Since(start)
+
+	assert.ErrorIs(t, stopErr, context.DeadlineExceeded)
+	assert.Less(t, elapsed, 5*time.Second, "StopContext should return promptly after context deadline")
 }
 
 func TestClient_EncodeJSON(t *testing.T) {
