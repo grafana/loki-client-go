@@ -124,8 +124,9 @@ type Client struct {
 	quit    chan struct{}
 	once    sync.Once
 	entries chan entry
-	wg      sync.WaitGroup
-	sendWg  sync.WaitGroup
+	wg       sync.WaitGroup
+	sendWg   sync.WaitGroup
+	sendDone chan struct{} // closed when all in-flight sends complete after run() exits
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -167,12 +168,13 @@ func NewWithLogger(cfg Config, logger log.Logger) (*Client, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	c := &Client{
-		logger:  log.With(logger, "component", "client", "host", cfg.URL.Host),
-		cfg:     cfg,
-		quit:    make(chan struct{}),
-		entries: make(chan entry, cfg.BufferSize),
-		ctx:     ctx,
-		cancel:  cancel,
+		logger:   log.With(logger, "component", "client", "host", cfg.URL.Host),
+		cfg:      cfg,
+		quit:     make(chan struct{}),
+		entries:  make(chan entry, cfg.BufferSize),
+		sendDone: make(chan struct{}),
+		ctx:      ctx,
+		cancel:   cancel,
 
 		externalLabels: cfg.ExternalLabels.LabelSet,
 	}
@@ -203,6 +205,11 @@ func NewWithLogger(cfg Config, logger log.Logger) (*Client, error) {
 
 	c.wg.Add(1)
 	go c.run()
+	go func() {
+		c.wg.Wait()
+		c.sendWg.Wait()
+		close(c.sendDone)
+	}()
 	return c, nil
 }
 
@@ -432,20 +439,13 @@ func (c *Client) getTenantID(labels model.LabelSet) string {
 // sends complete, it force-cancels them and returns the context error.
 func (c *Client) StopContext(ctx context.Context) error {
 	c.once.Do(func() { close(c.quit) })
-	c.wg.Wait()
-
-	done := make(chan struct{})
-	go func() {
-		c.sendWg.Wait()
-		close(done)
-	}()
 
 	select {
-	case <-done:
+	case <-c.sendDone:
 		return nil
 	case <-ctx.Done():
-		c.cancel() // force-cancel all in-flight sends
-		<-done     // wait for goroutines to actually return
+		c.cancel()      // force-cancel all in-flight sends
+		<-c.sendDone    // wait for goroutines to actually return
 		return ctx.Err()
 	}
 }
