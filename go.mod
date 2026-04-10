@@ -2,7 +2,7 @@ module github.com/grafana/loki-client-go
 
 go 1.24.0
 
-toolchain go1.24.13
+toolchain go1.26.2
 
 require (
 	github.com/blang/semver v3.5.1+incompatible
