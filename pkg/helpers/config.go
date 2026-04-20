@@ -4,7 +4,7 @@ import (
 	"io/ioutil"
 
 	"github.com/pkg/errors"
-	yaml "gopkg.in/yaml.v2"
+	yaml "gopkg.in/yaml.v3"
 )
 
 // LoadConfig read YAML-formatted config from filename into cfg.

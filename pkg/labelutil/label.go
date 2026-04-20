@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/prometheus/common/model"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 // LabelSet is a labelSet that can be used as a flag.
